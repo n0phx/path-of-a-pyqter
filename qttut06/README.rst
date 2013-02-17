@@ -2,7 +2,7 @@ Solving SSL problems
 ====================
 
 
-Previously we mentioned that we are ignoring ssl related errors, and that we should find a proper solution for that. These errors may happen with websites using expired / self-signed certificates, or in case our local store of certificates is empty. If we disable the ``reply.ignoreSslErrors()`` call, and try to load any website running on https, chances are good that we will get an ``SslHandshakeFailedError``. Let's actually try to trigger that error:::
+Previously we mentioned that we are ignoring ssl related errors, and that we should find a proper solution for that. These errors may happen with websites using expired / self-signed certificates, or in case our local store of certificates is empty. If we disable the ``reply.ignoreSslErrors()`` call, and try to load any website running on https, chances are good that we will get an ``SslHandshakeFailedError``. Let's actually try to trigger that error::
 
 
     class YahooDriver(BaseWebDriver):
@@ -86,17 +86,21 @@ So we end up with 4 certificate files, and now that we have them, we have to wri
 `qttut06.py 
 <https://github.com/integricho/path-of-a-pyqter/blob/master/qttut06/qttut06.py>`_.
 
+| 
 
-By calling ``QSslConfiguration.defaultConfiguration``, we get access to the default global ssl configuration of ``QT``, which probably contains zero installed certificates. We explicitly set the ssl protocol to ``QSsl.SecureProtocols``, which in current versions of ``QT`` means to use ``Tlsv1`` and ``Sslv3``. After that, we loop through all the files in the directory containing the certificates (you can specify any path just put there the certificate files) and open those which have ``'.pem'`` extensions to add them to the list of certificates. At the end we set the modified ssl configuration as the default one, so any successive calls to it will return our modified ssl configuration.
+By calling ``QSslConfiguration.defaultConfiguration``, we get access to the default global ssl configuration of *QT*, which probably contains zero installed certificates. We explicitly set the ssl protocol to ``QSsl.SecureProtocols``, which in current versions of *QT* means to use ``Tlsv1`` and ``Sslv3``.
+
+After that, we loop through all the files in the directory containing the certificates (you can specify any path just put there the certificate files) and open those which have ``'.pem'`` extensions to add them to the list of certificates. At the end we set the modified ssl configuration as the default one, so any successive calls to it will return our modified ssl configuration.
+
 After running the driver again, as it finished successfully the page loading, peeking into the logfile reveals that the previous error is now resolved:::
 
     URL: https://csc.beap.bc.yahoo.com/yi?bv=1.0.0&bs=(135q3fve4(gid$Fr90PmKL7aKr1bRpcc0XgwLDXbpGjVDkAIcACNMP,st$1357119623604841,si$4465551,sp$150002529,pv$1,v$2.0))&t=J_3-D_3&al=(as$12r4csml7,aid$ovOlIGKL4Iw-,bi$1603559051,cr$3112176051,ct$25,at$blank-H)&s=0&r=0.36311786458827555
     STATUS CODE: 200 OK
 
-Anyone running a ``Debian`` family system may experience other difficulties, such as network requests never finish, ssl handshake failures even if you have the proper certificates, or ``QNetworkReply.RemoteHostClosedError`` appearing in your logfile. Older versions of ``openssl`` definitely had problems(current versions probably), I experienced them myself. This is the bug which affected me: `965371 <https://bugs.launchpad.net/ubuntu/+source/openssl/+bug/965371>`_ and even though it is fixed now, in case you are unable to update your version, a workaround is to force the usage of a different ssl protocol. In case of ``QT``, this means updating our certificate installer function, specifically the line:::
+Anyone running a *Debian* family system may experience other difficulties, such as network requests never finish, ssl handshake failures even if you have the proper certificates, or ``QNetworkReply.RemoteHostClosedError`` appearing in your logfile. Older versions of ``openssl`` definitely had problems(current versions probably), I experienced them myself. This is the bug which affected me: `965371 <https://bugs.launchpad.net/ubuntu/+source/openssl/+bug/965371>`_ and even though it is fixed now, in case you are unable to update your version, a workaround is to force the usage of a different ssl protocol. In case of *QT*, this means updating our certificate installer function, specifically the line::
 
     ssl_config.setProtocol(QSsl.SecureProtocols)
 
-should be replaced with:::
+should be replaced with::
 
     ssl_config.setProtocol(QSsl.SslV3)
