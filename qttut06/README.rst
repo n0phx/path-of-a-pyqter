@@ -86,8 +86,6 @@ So we end up with 4 certificate files, and now that we have them, we have to wri
 `qttut06.py 
 <https://github.com/integricho/path-of-a-pyqter/blob/master/qttut06/qttut06.py>`_.
 
-| 
-
 By calling ``QSslConfiguration.defaultConfiguration``, we get access to the default global ssl configuration of *QT*, which probably contains zero installed certificates. We explicitly set the ssl protocol to ``QSsl.SecureProtocols``, which in current versions of *QT* means to use ``Tlsv1`` and ``Sslv3``.
 
 After that, we loop through all the files in the directory containing the certificates (you can specify any path just put there the certificate files) and open those which have ``'.pem'`` extensions to add them to the list of certificates. At the end we set the modified ssl configuration as the default one, so any successive calls to it will return our modified ssl configuration.

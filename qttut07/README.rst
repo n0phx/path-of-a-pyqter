@@ -6,54 +6,32 @@ Occasionally some requests may fail, which may or may not affect the whole page 
 
 So what actually happens is that the page loads successfully, ``loadFinished`` is emitted, we return the result to our web driver, which initiates the next step. But in the meantime the ``JavaScript`` code running on the page actually started a new request, it's running in the background, and then our next step jumps in and starts a new request, which loads a completely new page. When this happens, all previous requests are automatically cancelled. The same thing happens in normal browsers as well, try loading a page, and while some of it's requests are still running, navigate somewhere else. You will see in your net panel that the previous requests just disappears, they will be cancelled, and a new request will be running.
 
-| 
-
 ``QNetworkReply.ContentNotFoundError`` is thrown at us when: "the remote content was not found at the server (similar to HTTP error 404)". This will happen when a possibly unimportant resource fails to download, e.g. when a page tries to load an image resource but the url pointing to it is not correct. In it's worst form it will be the error when we specify a totally wrong URL.
-
-| 
 
 ``QNetworkReply.TemporaryNetworkFailureError``: "the connection was broken due to disconnection from the network, however the system has initiated roaming to another access point. The request should be resubmitted and will be processed as soon as the connection is re-established.".
 ``QNetworkReply.ContentReSendError``: "the request needed to be sent again, but this failed for example because the upload data could not be read a second time."
-
-|
 
 Judging by the previous two descriptions, I'd retry those requests which encounter these errors. However, we should be careful to avoid trapping ourselves in infinite recursions, which could be easily achieved by continuously retrying failing requests, and not letting the application to call the ``Browser._load_finished`` method until all requests are successfully completed.
 
 Actually we will use exactly that logic, with the difference that we will add a retry counter to break the loop after a specific number of retries (and that number should be pretty small). What turns out to be a bigger problem is that we have to keep track of the upload data somehow, because that information is not available when the ``Browser._finished`` method is called at the end of a request. The only place we know the upload data flows through in it's final form is the ``QNetworkAccessManager.createRequest`` method, so we should save it there, and then reuse it when and if needed.
 
-| 
-
 `qttut07.py 
 <https://github.com/integricho/path-of-a-pyqter/blob/master/qttut07/qttut07.py>`_.
 
-| 
-
 Well, several important changes are added, first of all, we have a log filter now, which depending on the logging level decides in which file should the message be written. We introduced that feature, because from now on, we will be tracking the "life-time" of all request objects, starting from the point of creation until their destruction. As it produces a considerable amount of messages too, it's better to separate those messages into another file, so we can easily check out what happens under the hood.
-
-| 
 
 Let's start with the birth of a request... The moment our ``Browser`` instance starts a page load, a request is born, and will immediately flow through our ``SmartNetworkAccessManager._create_request`` virtual function. As our goal is to be able to retry requests later, we have to keep track of them somehow and that's why we added a dictionary named _requests to the ``SmartNetworkAccessManager`` class. We will use the ids of the reply objects as keys, which will be unique for all requests, and associate another dictionaries as values, where we put the newly constructed reply object, the upload data we want to send, a flag indicating whether the request is finished or not, and a counter indicating the number of times the request was retried. This all sounds easy, but on second thought, how the heck can we preserve the outgoing data, because if we simply store the data object, by the time we try to access it again, it will be empty, bloody sequential devices...
 
-|
-
 I had two ideas to solve this problem, the first was using the famous peek method, in which case we would start a loop, pick an initial size of bytes(N) to read, let's say 128, peek the data from the device, if the number of bytes we get back is equal to N, we increase it by 128 and try again, and repeat this until the size we get back will be less than the current value of N, meaning the size is sufficient to cover the whole outgoing data. Even though this method could work, the sound of using a loop, which blocks the request creation for a little feels wrong, even if it's only a tiny bit of time.
-
-| 
 
 The other idea is to duplicate the sequential device somehow, but since reading all the data from it would empty the original device, we should actually create two new devices, one for backup, and one to be passed further instead of the original device. This sounds reasonable enough to me, we create two new ``QBuffer`` instances, set the data on them (got from the original device using the ``readAll`` method), set their open mode to ``ReadOnly``, store one of the new devices in the ``SmartNetworkAccessManager._requests`` dictionary(which will be used if a request has to be retried), pass the other new device to the ``QNetworkAccessManager.createRequest`` method, and get a segfault.
 
 A segfault, you ask? Yes. At first I found no evidence why would that happen, I was thinking about some object identity check maybe somewhere deeply hidden, nothing was mentioned in the API docs, and I found no snippet on the web about such cloning, so I finally ended up opening: `THE SOURCE <http://qt.gitorious.org/qt/qt/blobs/4.8/src/network/access/qnetworkaccessmanager.cpp>`_
 and started following the path my request should take. Landing on ``line 628`` reveals the creation of our outgoing data object, and what a surprise, there's a call to ``setParent``. This may seem natural to *C++* / *QT* programmers, but not so natural for *Python* programmers. Obviously it is on a need to know basis, and we don't need to know. 
 
-| 
-
 Anyway, adding that last piece of puzzle solved the issue, and requests are now executed the same way as before. Warning! Do not try this at home: if you would disable the magical call to ``setParent`` on both new ``QIODevices``, and try to run the application, a segfault would be expecting you shortly after the ``SmartNetworkAccessManager._create_request`` method is executed.
 
-| 
-
 The last line before returning the newly created reply object is connecting the reply object's destroyed signal to the ``SmartNetworkAccessManager._reply_destroyed`` method, but it's done using a partial object too, in order to preserve the id of the reply object, because that is the only parameter the ``_reply_destroyed`` method requires. It's task is to delete all destroyed reply objects from the ``SmartNetworkAccessManager._requests`` dictionary, and log the event. It is imperative to keep that dictionary clean for reasons which are classified now, and will be revealed a bit later.
-
-| 
 
 Let's look at the somewhat larger ``SmartNetworkAccessManager._finished`` method. We look up in our ``SmartNetworkAccessManager._requests`` dictionary the currently finished request by the id of the reply object *QT* passed to us. First we check whether the reply got one of those errors we wish to retry if they happen, and make sure it was not already retried more than the allowed number of times. In case these conditions are met, we get the backup outgoing data object we cloned in our ``SmartNetworkAccessManager._create_request`` method, and initiate the same request once again. By initiating a new request, we actually get a new reply object back, which was added automatically to our ``SmartNetworkAccessManager._requests`` dictionary, thanks to the ``SmartNetworkAccessManager._create_request`` method, so in order to keep track of the retry count, we not only have to increase the failed request's retry count, but assign that value under the new reply object's id in the dictionary. It's like::
 
@@ -63,11 +41,7 @@ Let's look at the somewhat larger ``SmartNetworkAccessManager._finished`` method
 
 At the end of the method, mark the currently finished request as *finished*, which information is used by the ``SmartNetworkAccessManager.active_requests`` method to return a list of still pending requests. This covers about all the news in the ``SmartNetworkAccessManager`` class.
 
-| 
-
 Let's look into the ``Browser`` class. It basically introduces only two new features, a way to specify a custom timeout value for the overall page loading, and a feature to protect pending requests from being aborted when the ``loadFinished`` signal is emitted. The timeout value is passed to the browser along with the other browser options, and surprisingly as it sounds, it's implemented manually, because *QT* has no way to override the value it uses internally.
-
-| 
 
 In both ``Browser.make`` and ``Browser.click`` methods, the ``Browser._start_task`` method is called. It's task is to start the timeout timer, and in case the specified timeout value is reached, call the ``Browser._load_finished`` method, with the ok parameter being set to ``timed_out``. That way the ``Browser._load_finished`` method is able to check whether the loading actually timed out or it's called by ``QT``'s ``loadFinished`` signal. 
 
@@ -75,11 +49,7 @@ The ``Browser._finish_task`` method is called at the end of the ``Browser._load_
 
 Also, the ``Browser._is_task_finished`` bool flag is controlled by the previous two methods, to avoid firing the ``Browser._load_finished`` method more than once. So if the flag is set, and ``Browser._load_finished`` is called, it will just return without calling the callback or doing anything at all.
 
-| 
-
 The second feature, ``Browser._load_finished`` method always calls ``SmartNetworkAccessManager``'s ``active_requests`` property, which returns a list of still pending requests. If there are pending requests, we schedule a second call to ``Browser._load_finished`` in 1 second, giving a little time for the pending request to finish, and repeat that until all of them are finished. This process could of course cause large delays, waiting for some slow and possibly unimportant requests, but at least you won't get an ``OperationCancelledError``, unless our custom timeout solution kicks in, in which case pending requests would be cancelled very likely.
-
-| 
 
 I made a lot of assumptions here, without any proof, and you are supposed to believe me that all this just works... Ok, not exactly, I made some *unittest*'s too. Actually, they are more like integration tests, as I'm testing the overall work of the ``Browser`` class, not it's methods separately. What was needed for these tests to work is a webserver, so there's a simple one in the ``httpserver.py`` file, which is imported by the ``test_qttut07.py`` module. It's started as a separate process, so our tests can run after firing up the server. We're simulating just a couple of tests, one for a normal successful request, one for a request which is retried two times and then fails totally, one which is retried once and fails because we reach the maximum retry count value, and one that times out.
 
@@ -89,12 +59,8 @@ What these tests uncovered, besides the fact that it looks like this thing reall
 
 So if you look into ``httpserver.py``'s ``TestHTTPRequestHandler.__return_result`` method, you can see that I always use a 0.1 second delay before answering, and eventually add more to it if specified, which avoids the occurrance of this bug. If it's not present, the bug will reappear again in about 50% of the trials. Someone correct me if I got this wrong, and it's actually a problem with my code, but it surely looks to me that it isn't (I tested this on *QT 4.8.1* and *PySide 1.1.2*).
 
-| 
-
 `test_qttut07.py 
 <https://github.com/integricho/path-of-a-pyqter/blob/master/qttut07/test_qttut07.py>`_.
-
-| 
 
 `httpserver.py 
 <https://github.com/integricho/path-of-a-pyqter/blob/master/qttut07/httpserver.py>`_.
