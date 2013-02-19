@@ -21,7 +21,7 @@ Introduction
 There's no doubt, *QT* is an incredibly awesome library. Unfortunately it's *Python* bindings, specifically it's ``QtWebKit`` and ``QtNetwork`` modules are not really well documented, I mean there are some tutorials scattered accross the web, the API documentation, and even some books covering parts of it, but in reality newcomers have a really hard time finding good resources for it. I found myself in the same situation, and had to learn it the hard way.
 
 The API documentation is really good indeed, but it takes some time to figure out how things work, and in many cases you have to read *C++* answers on `stackoverflow <http://stackoverflow.com/>`_
-, because no one asked such things for python. Not to mention the times when you have to step through mailing lists, issue trackers, or the actual *C++* source code, when something just doesn't work the way you expected.
+, because no one asked such things for *Python*. Not to mention the times when you have to step through mailing lists, issue trackers, or the actual *C++* source code, when something just doesn't work the way you expected.
 
 So while you're trying to figure out why the heck you got a segfault, why was or wasn't your signal emitted and similar questions, you'll learn a great deal. Some may think it's a waste of time, but I myself enjoyed every minute of doing that kind of research. The only thing I don't like about *QT* is it's unpythonic syntax, but that's again something we can live with...
 
